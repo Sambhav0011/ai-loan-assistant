@@ -1,27 +1,35 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./App.css";
 
 function App() {
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    const savedMessages = localStorage.getItem("loan-chat");
+    return savedMessages ? JSON.parse(savedMessages) : [];
+  });
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("loan-chat", JSON.stringify(messages));
+  }, [messages]);
 
   const sendMessage = async () => {
     if (!message.trim() || loading) {
       return;
     }
 
-    const userMessage = message;
+    const userMessage = {
+      role: "user",
+      content: message,
+    };
 
-    setMessages((previousMessages) => [
-      ...previousMessages,
-      {
-        role: "user",
-        content: userMessage,
-      },
-    ]);
+    // Create updated conversation
+    const updatedMessages = [...messages, userMessage];
+
+    // Update UI immediately
+    setMessages(updatedMessages);
 
     setMessage("");
     setLoading(true);
@@ -35,7 +43,7 @@ function App() {
         },
 
         body: JSON.stringify({
-          message: userMessage,
+          messages: updatedMessages,
         }),
       });
 
@@ -45,8 +53,8 @@ function App() {
         throw new Error(data.error || "Something went wrong");
       }
 
-      setMessages((previousMessages) => [
-        ...previousMessages,
+      setMessages([
+        ...updatedMessages,
         {
           role: "assistant",
           content: data.reply,
@@ -55,8 +63,8 @@ function App() {
     } catch (error) {
       console.error(error);
 
-      setMessages((previousMessages) => [
-        ...previousMessages,
+      setMessages([
+        ...updatedMessages,
         {
           role: "assistant",
           content: "Sorry, something went wrong.",
@@ -73,12 +81,27 @@ function App() {
       sendMessage();
     }
   };
+  const clearChat = () => {
+    setMessages([]);
+    localStorage.removeItem("loan-chat");
+  };
 
   return (
     <div className="app">
       <div className="chat-container">
         <header className="header">
-          <h1>AI Loan Assistant</h1>
+          <div className="header-top">
+            <h1>AI Loan Assistant</h1>
+
+            <button
+              className="clear-btn"
+              onClick={clearChat}
+              title="Clear Chat"
+            >
+              🧹
+            </button>
+          </div>
+
           <p>Ask questions about loans, eligibility and documentation.</p>
         </header>
 

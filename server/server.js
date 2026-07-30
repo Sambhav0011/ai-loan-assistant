@@ -17,14 +17,15 @@ const client = new OpenAI({
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message } = req.body;
+    const { messages } = req.body;
 
-    if (!message) {
+    if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({
-        error: "Message is required",
+        error: "Messages are required",
       });
     }
 
+    const recentMessages = messages.slice(-10);
     const response = await client.chat.completions.create({
       model: "openai/gpt-oss-20b",
       messages: [
@@ -76,34 +77,26 @@ Do not use US-specific terminology such as:
 
 ACCURACY:
 
-1. Do not state that a document is "mandatory" unless the requirement
-is clearly universal.
-2. Explain that document requirements can vary by bank, NBFC,
-loan type, applicant profile, and employment type.
+1. Do not state that a document is "mandatory" unless the requirement is clearly universal.
+2. Explain that document requirements can vary by bank, NBFC, loan type, applicant profile, and employment type.
 3. Avoid giving specific approval guarantees.
 4. Do not claim that a particular CIBIL score guarantees approval.
-5. If discussing financial figures, rates, eligibility limits, or
-requirements that can change, tell the user to verify them with
-the relevant lender.
+5. If discussing financial figures, rates, eligibility limits, or requirements that can change, tell the user to verify them with the relevant lender.
 6. Do not provide legally or financially binding financial advice.
 
 LOAN SAFETY:
 
 Never claim that you can approve or reject an actual loan.
 
-You are an informational assistant, not a bank, lender, financial
-advisor, or credit decisioning system.
+You are an informational assistant, not a bank, lender, financial advisor, or credit decisioning system.
 
-If the user asks something unrelated to loans or lending,
-politely explain that you specialize in loan-related topics.
+If the user asks something unrelated to loans or lending, politely explain that you specialize in loan-related topics.
 
 Give practical, professional, easy-to-scan answers.
 `,
         },
-        {
-          role: "user",
-          content: message,
-        },
+
+        ...recentMessages,
       ],
     });
 

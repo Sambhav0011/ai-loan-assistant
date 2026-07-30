@@ -1141,3 +1141,77 @@ textarea:focus {
     font-size: 13px;
   }
 }
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.clear-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  padding: 10px 18px;
+
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+
+  color: #d4d7e3;
+
+  border-radius: 12px;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition: all 0.25s ease;
+}
+
+.clear-btn:hover {
+  background: rgba(124,92,255,0.15);
+  border-color: #7c5cff;
+  color: white;
+  transform: translateY(-2px);
+}
+
+.clear-btn:active {
+  transform: scale(0.96);
+}
+
+.clear-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.header {
+    position: relative;
+}
+
+.clear-btn {
+    position: absolute;
+    right: 28px;
+    top: 22px;
+
+    width: 42px;
+    height: 42px;
+
+    border-radius: 50%;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+
+    color: #d4d7e3;
+    cursor: pointer;
+    transition: all .3s;
+}
+
+.clear-btn:hover{
+    background:#7c5cff;
+    color:white;
+    transform:rotate(12deg) scale(1.08);
+}
