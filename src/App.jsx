@@ -11,6 +11,18 @@ function App() {
   });
   const [loading, setLoading] = useState(false);
 
+  const [sessionId] = useState(() => {
+  let id = localStorage.getItem("loan-session-id");
+
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("loan-session-id", id);
+  }
+
+  return id;
+});
+console.log(sessionId);
+
   useEffect(() => {
     localStorage.setItem("loan-chat", JSON.stringify(messages));
   }, [messages]);
