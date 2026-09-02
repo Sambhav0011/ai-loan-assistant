@@ -16,6 +16,70 @@ const client = new OpenAI({
 });
 
 // -----------------------------
+// AI Tools
+// -----------------------------
+const tools = [
+  {
+    type: "function",
+    function: {
+      name: "calculate_emi",
+      description:
+        "Calculate the monthly EMI, total interest, and total payment for a loan.",
+      parameters: {
+        type: "object",
+        properties: {
+          principal: {
+            type: "number",
+            description: "The loan amount in Indian rupees.",
+          },
+          annualRate: {
+            type: "number",
+            description: "The annual interest rate in percentage.",
+          },
+          years: {
+            type: "number",
+            description: "The loan tenure in years.",
+          },
+        },
+        required: ["principal", "annualRate", "years"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "check_loan_eligibility",
+      description:
+        "Estimate whether a loan EMI is affordable based on monthly salary, existing EMI, and required loan EMI. Use this tool only when all three values are available. If any value is missing, ask the user for the missing information instead of guessing.",
+      parameters: {
+        type: "object",
+        properties: {
+          salary: {
+            type: "number",
+            description: "Monthly salary in Indian rupees.",
+          },
+
+          existingEMI: {
+            type: "number",
+            description:
+              "Existing monthly EMI obligations in Indian rupees. Use 0 only if the user explicitly says they have no existing EMI.",
+          },
+
+          requiredEMI: {
+            type: "number",
+            description:
+              "Monthly EMI required for the new loan in Indian rupees.",
+          },
+        },
+
+        required: ["salary", "existingEMI", "requiredEMI"],
+      },
+    },
+  },
+];
+
+// -----------------------------
 // EMI Query Detection
 // -----------------------------
 function isEMIQuery(text) {
@@ -31,6 +95,10 @@ function isEMIQuery(text) {
     lower.includes("tenure")
   );
 }
+
+// -----------------------------
+// Eligibility Query Detection
+// -----------------------------
 function isEligibilityQuery(text) {
   const lower = text.toLowerCase();
 
@@ -44,7 +112,7 @@ function isEligibilityQuery(text) {
 }
 
 // -----------------------------
-// EMI Calculator Tool
+// EMI Calculator
 // -----------------------------
 function calculateEMI(principal, annualRate, years) {
   const monthlyRate = annualRate / 12 / 100;
@@ -63,6 +131,13 @@ function calculateEMI(principal, annualRate, years) {
     totalInterest: Math.round(totalInterest),
     months,
   };
+}
+
+// -----------------------------
+// Validate Tool Numbers
+// -----------------------------
+function isValidNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 // -----------------------------
@@ -97,17 +172,19 @@ function extractLoanDetails(text) {
     years,
   };
 }
+
+// -----------------------------
+// Extract Salary
+// -----------------------------
 function extractSalary(text) {
   const lower = text.toLowerCase();
 
-  // Match: 6 lakh
   const lakhMatch = lower.match(/(\d+(?:\.\d+)?)\s*lakh/);
 
   if (lakhMatch) {
     return parseFloat(lakhMatch[1]) * 100000;
   }
 
-  // Match: ₹60,000 or 60000
   const numberMatch = lower.match(/₹?\s*([\d,]+)/);
 
   if (numberMatch) {
@@ -116,13 +193,12 @@ function extractSalary(text) {
 
   return null;
 }
+
+// -----------------------------
+// Extract Existing EMI
+// -----------------------------
 function extractExistingEMI(text) {
   const lower = text.toLowerCase();
-
-  // Examples:
-  // Existing EMI is ₹10,000
-  // Existing EMI 15000
-  // EMI 8000
 
   const match = lower.match(
     /existing\s*emi.*?₹?\s*([\d,]+)|emi.*?₹?\s*([\d,]+)/,
@@ -134,6 +210,10 @@ function extractExistingEMI(text) {
 
   return Number((match[1] || match[2]).replace(/,/g, ""));
 }
+
+// -----------------------------
+// Basic Eligibility
+// -----------------------------
 function calculateEligibility(monthlyIncome) {
   const maxEMI = monthlyIncome * 0.5;
 
@@ -142,9 +222,15 @@ function calculateEligibility(monthlyIncome) {
     maxEMI,
   };
 }
+
+// -----------------------------
+// Extract Eligibility Details
+// -----------------------------
 function extractEligibilityDetails(text) {
   const salary = extractSalary(text);
+
   const existingEMI = extractExistingEMI(text);
+
   const { amount, rate, years } = extractLoanDetails(text);
 
   return {
@@ -160,11 +246,10 @@ function extractEligibilityDetails(text) {
 // -----------------------------
 const conversations = {};
 
-function analyzeLoanEligibility({
-  salary,
-  existingEMI,
-  requiredEMI,
-}) {
+// -----------------------------
+// Eligibility Calculation
+// -----------------------------
+function analyzeLoanEligibility({ salary, existingEMI, requiredEMI }) {
   const maxAffordableEMI = salary * 0.5;
 
   const remainingEMI = maxAffordableEMI - existingEMI;
@@ -176,31 +261,67 @@ function analyzeLoanEligibility({
   };
 }
 
+// -----------------------------
+// Clear Conversation
+// -----------------------------
+app.delete("/api/chat/session/:sessionId", (req, res) => {
+  const { sessionId } = req.params;
+
+  if (conversations[sessionId]) {
+    delete conversations[sessionId];
+  }
+
+  return res.json({
+    message: "Conversation session cleared",
+  });
+});
+
+// -----------------------------
+// Chat API
+// -----------------------------
 app.post("/api/chat", async (req, res) => {
   try {
     const { sessionId, messages } = req.body;
-    if (!conversations[sessionId]) {
-  conversations[sessionId] = {
-    step: null,
-    salary: null,
-    existingEMI: null,
-    amount: null,
-    rate: null,
-    years: null,
-  };
-}
-const conversationState = conversations[sessionId];
 
-    // Validate request
+    // -----------------------------
+    // Validate Request
+    // -----------------------------
+    if (!sessionId) {
+      return res.status(400).json({
+        error: "Session ID is required",
+      });
+    }
+
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({
         error: "Messages are required",
       });
     }
 
-    const latestUserMessage = messages[messages.length - 1]?.content || "";
     // -----------------------------
-    // Conversation Flow
+    // Create Session State
+    // -----------------------------
+    if (!conversations[sessionId]) {
+      conversations[sessionId] = {
+        step: null,
+        salary: null,
+        existingEMI: null,
+        amount: null,
+        rate: null,
+        years: null,
+      };
+    }
+    const conversationState = conversations[sessionId];
+
+    const latestUserMessage = messages[messages.length - 1]?.content || "";
+
+    // =============================
+    // OLD MULTI-STEP FLOW
+    // =============================
+
+    // -----------------------------
+    // Salary Step
+    // -----------------------------
     if (conversationState.step === "salary") {
       const salary = extractSalary(latestUserMessage);
 
@@ -211,14 +332,12 @@ const conversationState = conversations[sessionId];
 Example:
 
 - ₹60,000
-- 80000`,
+- ₹80,000`,
         });
       }
 
       conversationState.salary = salary;
       conversationState.step = "existingEMI";
-
-      console.log(conversationState);
 
       return res.json({
         reply: `Great!
@@ -251,8 +370,6 @@ Examples:
 
       conversationState.existingEMI = existingEMI;
       conversationState.step = "amount";
-
-      console.log(conversationState);
 
       return res.json({
         reply: `Perfect!
@@ -310,30 +427,30 @@ Examples:
     }
     // -----------------------------
 
-// Interest Rate Step
-// -----------------------------
-if (conversationState.step === "rate") {
-  const { rate } = extractLoanDetails(latestUserMessage);
+    // Interest Rate Step
+    // -----------------------------
+    if (conversationState.step === "rate") {
+      const { rate } = extractLoanDetails(latestUserMessage);
 
-  if (!rate) {
-    return res.json({
-      reply: `Please enter a valid annual interest rate.
+      if (!rate) {
+        return res.json({
+          reply: `Please enter a valid annual interest rate.
 
 Examples:
 
 - 8.5%
 - 9%
 - 10.25%`,
-    });
-  }
+        });
+      }
 
-  conversationState.rate = rate;
-  conversationState.step = "years";
+      conversationState.rate = rate;
+      conversationState.step = "years";
 
   console.log(conversationState);
 
-  return res.json({
-    reply: `Perfect!
+      return res.json({
+        reply: `Perfect!
 
 I've saved the interest rate as **${rate}%**.
 
@@ -346,44 +463,42 @@ Examples:
 - 20 years
 - 15 years
 - 10 years`,
-  });
-}
-// -----------------------------
+      });
+    }
+    // -----------------------------
 
-// Loan Tenure Step
-// -----------------------------
-if (conversationState.step === "years") {
-  const { years } = extractLoanDetails(latestUserMessage);
+    // Loan Tenure Step
+    // -----------------------------
+    if (conversationState.step === "years") {
+      const { years } = extractLoanDetails(latestUserMessage);
 
-  if (!years) {
-    return res.json({
-      reply: `Please enter a valid loan tenure.
+      if (!years) {
+        return res.json({
+          reply: `Please enter a valid loan tenure.
 
 Examples:
 
 - 20 years
 - 15 years
 - 10 years`,
-    });
-  }
+        });
+      }
 
-  conversationState.years = years;
+      conversationState.years = years;
 
-  // Calculate EMI
-  const emiResult = calculateEMI(
-    conversationState.amount,
-    conversationState.rate,
-    conversationState.years
-  );
+      const emiResult = calculateEMI(
+        conversationState.amount,
+        conversationState.rate,
+        conversationState.years,
+      );
 
-  // Analyze eligibility
-  const eligibility = analyzeLoanEligibility({
-    salary: conversationState.salary,
-    existingEMI: conversationState.existingEMI,
-    requiredEMI: emiResult.emi,
-  });
+      const eligibility = analyzeLoanEligibility({
+        salary: conversationState.salary,
+        existingEMI: conversationState.existingEMI,
+        requiredEMI: emiResult.emi,
+      });
 
-  const reply = `# Loan Eligibility Report
+      const reply = `# Loan Eligibility Report
 
 ## Your Details
 
@@ -403,140 +518,48 @@ Examples:
 
 ## Affordability
 
-- **Maximum Recommended EMI:** ₹${eligibility.maxAffordableEMI.toLocaleString("en-IN")}
-- **Remaining EMI Capacity:** ₹${eligibility.remainingEMI.toLocaleString("en-IN")}
+- **Maximum Recommended EMI:** ₹${eligibility.maxAffordableEMI.toLocaleString(
+        "en-IN",
+      )}
+- **Remaining EMI Capacity:** ₹${eligibility.remainingEMI.toLocaleString(
+        "en-IN",
+      )}
 
 ---
 
 ## Result
 
-${
-  eligibility.eligible
-    ? "✅ Based on this simple affordability calculation, you appear to be eligible."
-    : "❌ Based on this simple affordability calculation, the EMI is higher than your recommended limit."
-}
+${eligibility.eligible
+          ? "✅ Based on this simple affordability calculation, you appear to be eligible."
+          : "❌ Based on this simple affordability calculation, the EMI is higher than your recommended limit."
+        }
 
-> This is only an estimate. Actual approval depends on your CIBIL score, bank policies, employment, age and other eligibility criteria.
-`;
+> This is only an estimate. Actual approval depends on your CIBIL score, bank policies, employment, age and other eligibility criteria.`;
 
-  // Reset conversation
-  conversationState.step = null;
-  conversationState.salary = null;
-  conversationState.existingEMI = null;
-  conversationState.amount = null;
-  conversationState.rate = null;
-  conversationState.years = null;
-
-  console.log(conversationState);
-
-  return res.json({
-    reply,
-  });
-}
-
-    const details = extractEligibilityDetails(latestUserMessage);
-    console.log("Eligibility Details:");
-    console.log(details);
-
-    // -----------------------------
-    // EMI Tool
-    // -----------------------------
-    if (isEMIQuery(latestUserMessage)) {
-      const { amount, rate, years } = extractLoanDetails(latestUserMessage);
-
-      if (amount && rate && years) {
-        const result = calculateEMI(amount, rate, years);
-
-        return res.json({
-          reply: `# EMI Calculation Result
-
-For a **₹${(amount / 100000).toFixed(
-            0,
-          )} lakh** loan at **${rate}%** annual interest for **${years} years**
-
----
-
-## Monthly EMI
-
-# **₹${result.emi.toLocaleString("en-IN")}**
-
----
-
-## Loan Summary
-
-- **Loan Amount:** ₹${amount.toLocaleString("en-IN")}
-- **Interest Rate:** ${rate}% per year
-- **Tenure:** ${years} years (${result.months} months)
-- **Total Interest Payable:** ₹${result.totalInterest.toLocaleString("en-IN")}
-- **Total Amount Payable:** ₹${result.totalPayment.toLocaleString("en-IN")}
-
----
-
-## What this means
-
-You would pay approximately **₹${result.emi.toLocaleString(
-            "en-IN",
-          )} every month** for **${years} years**.
-
-Over the full tenure, you would pay **₹${result.totalInterest.toLocaleString(
-            "en-IN",
-          )} as interest**, in addition to the original loan amount.
-
----
-
-> **Note:** This is an estimate based on the standard reducing-balance EMI formula. Actual EMI may vary slightly depending on lender policies, insurance charges and loan processing fees.`,
-        });
-      }
+      // Reset state
+      conversationState.step = null;
+      conversationState.salary = null;
+      conversationState.existingEMI = null;
+      conversationState.amount = null;
+      conversationState.rate = null;
+      conversationState.years = null;
 
       return res.json({
-        reply: `# EMI Calculator
-
-I can calculate your EMI instantly.
-
-Please provide:
-
-- **Loan Amount** (Example: ₹20 lakh)
-- **Interest Rate** (Example: 8.5%)
-- **Loan Tenure** (Example: 20 years)
-
-### Example
-
-**Calculate EMI for ₹20 lakh at 8.5% for 20 years**`,
+        reply,
       });
     }
 
-    // -----------------------------
-    // Loan Eligibility Conversation
-    // -----------------------------
-    if (isEligibilityQuery(latestUserMessage)) {
-      conversationState.step = "salary";
-
-      return res.json({
-        reply: `# Loan Eligibility Check
-
-I'll help you estimate your loan eligibility.
-
-Let's do it step by step.
-
-### Question 1
-
-What is your **monthly salary**?
-
-Example:
-
-- ₹60,000
-- ₹80,000 per month
-`,
-      });
-    }
+    // =============================
+    // AI / GROQ
+    // =============================
 
     const recentMessages = messages.slice(-10);
-    const response = await client.chat.completions.create({
-      model: "openai/gpt-oss-20b",
-      messages: [
-        {
-          role: "system",
-          content: `
+
+    const aiMessages = [
+      {
+        role: "system",
+
+        content: `
 You are an AI Loan Assistant designed primarily for users in India.
 
 Your job is to explain loan concepts, eligibility, documentation,
@@ -586,29 +609,172 @@ ACCURACY:
 LOAN SAFETY:
 
 You cannot approve or reject loans.
+You only provide informational estimates.
 
-You are an informational assistant only.
+If the user asks for an EMI calculation and provides loan amount, interest rate and tenure, use calculate_emi.
 
-If the question is unrelated to loans, politely explain that you specialize in loan-related topics.
+If the user asks about loan eligibility and provides:
+- salary
+- existing EMI
+- required new EMI
+
+use check_loan_eligibility.
+
+If the user asks about eligibility and provides salary, existing EMI, loan amount, interest rate and tenure, but does not provide the new EMI:
+
+1. First use calculate_emi.
+2. Use the returned EMI as requiredEMI.
+3. Then use check_loan_eligibility.
+4. Finally explain the result.
+
+When a tool requires information that the user has not provided, do not guess the missing values.
+
+Ask the user for the missing information.
+
+Only call check_loan_eligibility when salary, existing EMI and required new EMI are known.
+
+Never guess missing financial values.
+
+Do not mention internal tool calls to the user.
 `,
-        },
+      },
 
-        ...recentMessages,
-      ],
-    });
+      ...recentMessages,
+    ];
 
-    res.json({
-      reply: response.choices[0].message.content,
+    // =============================
+    // MULTI-TOOL LOOP
+    // =============================
+
+    for (let i = 0; i < 5; i++) {
+      const response = await client.chat.completions.create({
+        model: "openai/gpt-oss-20b",
+        messages: aiMessages,
+        tools,
+        tool_choice: "auto",
+      });
+
+      const assistantMessage = response.choices[0].message;
+
+      // -----------------------------
+      // No more tools needed
+      // -----------------------------
+      if (!assistantMessage.tool_calls?.length) {
+        return res.json({
+          reply: assistantMessage.content,
+        });
+      }
+
+      // Save AI's tool request
+      aiMessages.push(assistantMessage);
+
+      // -----------------------------
+      // Execute Tools
+      // -----------------------------
+      for (const toolCall of assistantMessage.tool_calls) {
+        let args;
+
+        // -----------------------------
+        // Safe JSON Parsing
+        // -----------------------------
+        try {
+          args = JSON.parse(toolCall.function.arguments);
+        } catch (error) {
+          console.error("Invalid tool arguments:", error);
+
+          aiMessages.push({
+            role: "tool",
+
+            tool_call_id: toolCall.id,
+
+            content: JSON.stringify({
+              error: "Invalid tool arguments.",
+            }),
+          });
+
+          continue;
+        }
+        console.log("Tool selected:", toolCall.function.name);
+        console.log("Arguments:", args);
+
+        let result;
+
+        // =============================
+        // calculate_emi
+        // =============================
+        if (toolCall.function.name === "calculate_emi") {
+          if (
+            !isValidNumber(args.principal) ||
+            !isValidNumber(args.annualRate) ||
+            !isValidNumber(args.years)
+          ) {
+            result = {
+              error: "Invalid EMI input values.",
+            };
+          } else {
+            result = calculateEMI(args.principal, args.annualRate, args.years);
+          }
+        }
+
+        // =============================
+        // check_loan_eligibility
+        // =============================
+        else if (toolCall.function.name === "check_loan_eligibility") {
+          if (
+            !isValidNumber(args.salary) ||
+            !isValidNumber(args.existingEMI) ||
+            !isValidNumber(args.requiredEMI)
+          ) {
+            result = {
+              error: "Invalid eligibility input values.",
+            };
+          } else {
+            result = analyzeLoanEligibility({
+              salary: args.salary,
+
+              existingEMI: args.existingEMI,
+
+              requiredEMI: args.requiredEMI,
+            });
+          }
+        }
+
+        // =============================
+        // Unknown Tool
+        // =============================
+        else {
+          result = {
+            error: `Unknown tool: ${toolCall.function.name}`,
+          };
+        }
+
+        console.log("Tool result:", result);
+
+        // Send tool result back to AI
+        aiMessages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result),
+        });
+      }
+    }
+
+    // Safety limit
+    return res.status(500).json({
+      error: "Too many tool calls.",
     });
   } catch (error) {
     console.error("AI API Error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Something went wrong while processing the request.",
     });
   }
 });
 
+// -----------------------------
+// Start Server
+// -----------------------------
 app.listen(5000, () => {
   console.log("Server running on http://localhost:5000");
 });

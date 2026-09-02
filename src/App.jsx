@@ -53,8 +53,8 @@ console.log(sessionId);
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify({
+          sessionId: sessionId,
           messages: updatedMessages,
         }),
       });
@@ -93,10 +93,20 @@ console.log(sessionId);
       sendMessage();
     }
   };
-  const clearChat = () => {
+  const clearChat = async () => {
+  try {
+    await fetch(
+      `http://localhost:5000/api/chat/session/${sessionId}`,
+      {
+        method: "DELETE",
+      }
+    );
     setMessages([]);
     localStorage.removeItem("loan-chat");
-  };
+  } catch (error) {
+    console.error("Failed to clear chat:", error);
+  }
+};
 
   return (
     <div className="app">
