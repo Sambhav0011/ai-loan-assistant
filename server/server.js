@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import OpenAI from "openai";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
 dotenv.config();
 
@@ -14,7 +16,7 @@ const client = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
-
+const users = [];
 // -----------------------------
 // AI Tools
 // -----------------------------
@@ -139,6 +141,36 @@ function calculateEMI(principal, annualRate, years) {
 function isValidNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
+function validateEMIInputs(principal, annualRate, years) {
+  if (!isValidNumber(principal) || principal <= 0) {
+    return "Loan amount must be greater than 0.";
+  }
+
+  if (!isValidNumber(annualRate) || annualRate <= 0) {
+    return "Interest rate must be greater than 0.";
+  }
+
+  if (!isValidNumber(years) || years <= 0) {
+    return "Loan tenure must be greater than 0.";
+  }
+
+  return null;
+}
+function validateEligibilityInputs(salary, existingEMI, requiredEMI) {
+  if (!isValidNumber(salary) || salary <= 0) {
+    return "Salary must be greater than 0.";
+  }
+
+  if (!isValidNumber(existingEMI) || existingEMI < 0) {
+    return "Existing EMI cannot be negative.";
+  }
+
+  if (!isValidNumber(requiredEMI) || requiredEMI <= 0) {
+    return "Required EMI must be greater than 0.";
+  }
+
+  return null;
+}
 
 // -----------------------------
 // Extract Loan Details
@@ -261,10 +293,60 @@ function analyzeLoanEligibility({ salary, existingEMI, requiredEMI }) {
   };
 }
 
+
+// =====================================
+// ADD executeTool() HERE
+// =====================================
+
+function executeTool(toolName, args) {
+  if (toolName === "calculate_emi") {
+    const validationError = validateEMIInputs(
+      args.principal,
+      args.annualRate,
+      args.years
+    );
+
+    if (validationError) {
+      return {
+        error: validationError,
+      };
+    }
+
+    return calculateEMI(
+      args.principal,
+      args.annualRate,
+      args.years
+    );
+  }
+
+  if (toolName === "check_loan_eligibility") {
+    const validationError = validateEligibilityInputs(
+      args.salary,
+      args.existingEMI,
+      args.requiredEMI
+    );
+
+    if (validationError) {
+      return {
+        error: validationError,
+      };
+    }
+
+    return analyzeLoanEligibility({
+      salary: args.salary,
+      existingEMI: args.existingEMI,
+      requiredEMI: args.requiredEMI,
+    });
+  }
+
+  return {
+    error: `Unknown tool: ${toolName}`,
+  };
+}
 // -----------------------------
 // Clear Conversation
 // -----------------------------
-app.delete("/api/chat/session/:sessionId", (req, res) => {
+app.delete("/api/chat/session/:sessionId", authMiddleware, (req, res) => {
   const { sessionId } = req.params;
 
   if (conversations[sessionId]) {
@@ -275,12 +357,155 @@ app.delete("/api/chat/session/:sessionId", (req, res) => {
     message: "Conversation session cleared",
   });
 });
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
 
+  if (!authHeader) {
+    return res.status(401).json({
+      error: "Authorization token is required",
+    });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Invalid authorization format",
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
+
+    req.user = decoded;
+
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      error: "Invalid or expired token",
+    });
+  }
+}
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        error: "Name, email and password are required",
+      });
+    }
+
+    const existingUser = users.find(
+      (user) => user.email === email
+    );
+
+    if (existingUser) {
+      return res.status(409).json({
+        error: "User already exists",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newUser = {
+      id: crypto.randomUUID(),
+      name,
+      email,
+      password: hashedPassword,
+    };
+
+    users.push(newUser);
+
+    return res.status(201).json({
+      message: "User registered successfully",
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+      },
+    });
+  } catch (error) {
+    console.error("Register Error:", error);
+
+    return res.status(500).json({
+      error: "Something went wrong while registering user",
+    });
+  }
+});
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: "Email and password are required",
+      });
+    }
+
+    const user = users.find(
+      (user) => user.email === email
+    );
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Invalid email or password",
+      });
+    }
+
+    const isPasswordCorrect = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!isPasswordCorrect) {
+      return res.status(401).json({
+        error: "Invalid email or password",
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        userId: user.id,
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1h",
+      }
+    );
+
+    return res.status(200).json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error("Login Error:", error);
+
+    return res.status(500).json({
+      error: "Something went wrong while logging in",
+    });
+  }
+});
+app.get("/api/auth/me", authMiddleware, (req, res) => {
+  return res.status(200).json({
+    message: "Protected route accessed successfully",
+    user: req.user,
+  });
+});
 // -----------------------------
 // Chat API
 // -----------------------------
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", authMiddleware, async (req, res) => {
   try {
+    const userId = req.user.userId;
     const { sessionId, messages } = req.body;
 
     // -----------------------------
@@ -674,9 +899,6 @@ Do not mention internal tool calls to the user.
       for (const toolCall of assistantMessage.tool_calls) {
         let args;
 
-        // -----------------------------
-        // Safe JSON Parsing
-        // -----------------------------
         try {
           args = JSON.parse(toolCall.function.arguments);
         } catch (error) {
@@ -684,9 +906,7 @@ Do not mention internal tool calls to the user.
 
           aiMessages.push({
             role: "tool",
-
             tool_call_id: toolCall.id,
-
             content: JSON.stringify({
               error: "Invalid tool arguments.",
             }),
@@ -697,60 +917,10 @@ Do not mention internal tool calls to the user.
         console.log("Tool selected:", toolCall.function.name);
         console.log("Arguments:", args);
 
-        let result;
-
-        // =============================
-        // calculate_emi
-        // =============================
-        if (toolCall.function.name === "calculate_emi") {
-          if (
-            !isValidNumber(args.principal) ||
-            !isValidNumber(args.annualRate) ||
-            !isValidNumber(args.years)
-          ) {
-            result = {
-              error: "Invalid EMI input values.",
-            };
-          } else {
-            result = calculateEMI(args.principal, args.annualRate, args.years);
-          }
-        }
-
-        // =============================
-        // check_loan_eligibility
-        // =============================
-        else if (toolCall.function.name === "check_loan_eligibility") {
-          if (
-            !isValidNumber(args.salary) ||
-            !isValidNumber(args.existingEMI) ||
-            !isValidNumber(args.requiredEMI)
-          ) {
-            result = {
-              error: "Invalid eligibility input values.",
-            };
-          } else {
-            result = analyzeLoanEligibility({
-              salary: args.salary,
-
-              existingEMI: args.existingEMI,
-
-              requiredEMI: args.requiredEMI,
-            });
-          }
-        }
-
-        // =============================
-        // Unknown Tool
-        // =============================
-        else {
-          result = {
-            error: `Unknown tool: ${toolCall.function.name}`,
-          };
-        }
+        const result = executeTool(toolCall.function.name, args);
 
         console.log("Tool result:", result);
 
-        // Send tool result back to AI
         aiMessages.push({
           role: "tool",
           tool_call_id: toolCall.id,

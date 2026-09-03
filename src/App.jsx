@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import Login from "./Login";
+import Register from "./Register";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./App.css";
@@ -10,6 +12,15 @@ function App() {
     return savedMessages ? JSON.parse(savedMessages) : [];
   });
   const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState(localStorage.getItem("token"));
+  const [showRegister, setShowRegister] = useState(false);
+  const handleLogin = (newToken) => {
+    setToken(newToken);
+  };
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    setToken(null);
+  };
 
   const [sessionId] = useState(() => {
   let id = localStorage.getItem("loan-session-id");
@@ -21,7 +32,6 @@ function App() {
 
   return id;
 });
-console.log(sessionId);
 
   useEffect(() => {
     localStorage.setItem("loan-chat", JSON.stringify(messages));
@@ -47,11 +57,12 @@ console.log(sessionId);
     setLoading(true);
 
     try {
+      const token = localStorage.getItem("token");
       const response = await fetch("http://localhost:5000/api/chat", {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           sessionId: sessionId,
@@ -95,25 +106,51 @@ console.log(sessionId);
   };
   const clearChat = async () => {
   try {
-    await fetch(
-      `http://localhost:5000/api/chat/session/${sessionId}`,
+    const token = localStorage.getItem("token");
+    await fetch(`http://localhost:5000/api/chat/session/${sessionId}`, 
       {
-        method: "DELETE",
-      }
-    );
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
     setMessages([]);
     localStorage.removeItem("loan-chat");
   } catch (error) {
     console.error("Failed to clear chat:", error);
   }
 };
+if (!token) {
+    if (showRegister) {
+      return (
+        <Register
+          onSwitchToLogin={() => setShowRegister(false)}
+        />
+      );
+    }
+
+    return (
+      <Login
+        onLogin={handleLogin}
+        onSwitchToRegister={() => setShowRegister(true)}
+      />
+    );
+  }
 
   return (
     <div className="app">
       <div className="chat-container">
         <header className="header">
-          <div className="header-top">
+          <div className="header-info">
             <h1>AI Loan Assistant</h1>
+
+            <p>Ask questions about loans, eligibility and documentation.</p>
+          </div>
+
+          <div className="header-actions">
+            <button className="logout-btn" onClick={handleLogout}>
+              Logout
+            </button>
 
             <button
               className="clear-btn"
@@ -123,8 +160,6 @@ console.log(sessionId);
               🧹
             </button>
           </div>
-
-          <p>Ask questions about loans, eligibility and documentation.</p>
         </header>
 
         <main className="messages">

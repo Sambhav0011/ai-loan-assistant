@@ -1,0 +1,148 @@
+.register-page {
+  min-height: 100vh;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+
+  background:
+    radial-gradient(
+      circle at 10% 10%,
+      rgba(79, 70, 229, 0.28),
+      transparent 32%
+    ),
+    radial-gradient(
+      circle at 90% 85%,
+      rgba(139, 92, 246, 0.22),
+      transparent 32%
+    ),
+    linear-gradient(
+      135deg,
+      #050816 0%,
+      #0b1023 50%,
+      #11162d 100%
+    );
+}
+
+.register-card {
+  width: 100%;
+  max-width: 420px;
+
+  padding: 40px;
+
+  background: rgba(15, 23, 42, 0.92);
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+
+  text-align: center;
+}
+
+.register-card h2 {
+  margin: 0 0 8px;
+
+  color: #f8fafc;
+
+  font-size: 28px;
+}
+
+.register-subtitle {
+  margin-bottom: 30px;
+
+  color: #94a3b8;
+
+  font-size: 14px;
+}
+
+.register-form {
+  display: flex;
+  flex-direction: column;
+
+  gap: 16px;
+}
+
+.register-form input {
+  width: 100%;
+  height: 52px;
+
+  padding: 0 16px;
+
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+
+  outline: none;
+
+  background: rgba(2, 6, 23, 0.8);
+
+  color: #f8fafc;
+
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.register-form input::placeholder {
+  color: #64748b;
+}
+
+.register-form input:focus {
+  border-color: #6366f1;
+
+  box-shadow:
+    0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.register-button {
+  height: 52px;
+
+  border: none;
+  border-radius: 12px;
+
+  background:
+    linear-gradient(
+      135deg,
+      #6366f1,
+      #8b5cf6
+    );
+
+  color: white;
+
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+.register-button:hover {
+  transform: translateY(-2px);
+}
+
+.register-switch {
+  margin-top: 25px;
+
+  color: #94a3b8;
+
+  font-size: 14px;
+}
+
+.register-switch button {
+  margin-left: 5px;
+
+  border: none;
+
+  background: transparent;
+
+  color: #818cf8;
+
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+.register-switch button:hover {
+  text-decoration: underline;
+}
