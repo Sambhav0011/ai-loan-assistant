@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import OpenAI from "openai";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import pool from "./db.js";
 
 dotenv.config();
 
@@ -16,7 +17,6 @@ const client = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
-const users = [];
 // -----------------------------
 // AI Tools
 // -----------------------------
@@ -293,6 +293,24 @@ function analyzeLoanEligibility({ salary, existingEMI, requiredEMI }) {
   };
 }
 
+app.get("/api/test-db", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT NOW() AS current_time"
+    );
+
+    res.json({
+      message: "Database connected successfully",
+      time: result.rows[0].current_time,
+    });
+  } catch (error) {
+    console.error("Database connection error:", error);
+
+    res.status(500).json({
+      error: "Database connection failed",
+    });
+  }
+});
 
 // =====================================
 // ADD executeTool() HERE
@@ -399,11 +417,12 @@ app.post("/api/auth/register", async (req, res) => {
       });
     }
 
-    const existingUser = users.find(
-      (user) => user.email === email
+    const existingUser = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email],
     );
 
-    if (existingUser) {
+    if (existingUser.rows.length > 0) {
       return res.status(409).json({
         error: "User already exists",
       });
@@ -411,22 +430,20 @@ app.post("/api/auth/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = {
-      id: crypto.randomUUID(),
-      name,
-      email,
-      password: hashedPassword,
-    };
+    const userId = crypto.randomUUID();
 
-    users.push(newUser);
+    const result = await pool.query(
+      `INSERT INTO users (id, name, email, password_hash)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, email, created_at`,
+      [userId, name, email, hashedPassword],
+    );
+
+    const newUser = result.rows[0];
 
     return res.status(201).json({
       message: "User registered successfully",
-      user: {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-      },
+      user: newUser,
     });
   } catch (error) {
     console.error("Register Error:", error);
@@ -446,9 +463,11 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    const user = users.find(
-      (user) => user.email === email
-    );
+    const result = await pool.query("SELECT * FROM users WHERE email = $1", [
+      email,
+    ]);
+
+    const user = result.rows[0];
 
     if (!user) {
       return res.status(401).json({
@@ -458,7 +477,7 @@ app.post("/api/auth/login", async (req, res) => {
 
     const isPasswordCorrect = await bcrypt.compare(
       password,
-      user.password
+      user.password_hash,
     );
 
     if (!isPasswordCorrect) {
@@ -467,15 +486,9 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    const token = jwt.sign(
-      {
-        userId: user.id,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "1h",
-      }
-    );
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
 
     return res.status(200).json({
       message: "Login successful",
@@ -507,6 +520,19 @@ app.post("/api/chat", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { sessionId, messages } = req.body;
+    const existingSession = await pool.query(
+      `SELECT * FROM chat_sessions
+   WHERE id = $1 AND user_id = $2`,
+      [sessionId, userId],
+    );
+    
+    if (existingSession.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO chat_sessions (id, user_id)
+     VALUES ($1, $2)`,
+        [sessionId, userId],
+      );
+    }
 
     // -----------------------------
     // Validate Request
@@ -537,8 +563,17 @@ app.post("/api/chat", authMiddleware, async (req, res) => {
       };
     }
     const conversationState = conversations[sessionId];
-
     const latestUserMessage = messages[messages.length - 1]?.content || "";
+    if (latestUserMessage) {
+      await pool.query(
+        `INSERT INTO messages
+      (id, session_id, role, content)
+     VALUES ($1, $2, $3, $4)`,
+        [crypto.randomUUID(), sessionId, "user", latestUserMessage],
+      );
+
+      console.log("User message saved to database");
+    }
 
     // =============================
     // OLD MULTI-STEP FLOW
