@@ -7,10 +7,7 @@ import "./App.css";
 
 function App() {
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState(() => {
-    const savedMessages = localStorage.getItem("loan-chat");
-    return savedMessages ? JSON.parse(savedMessages) : [];
-  });
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [showRegister, setShowRegister] = useState(false);
@@ -19,23 +16,64 @@ function App() {
   };
   const handleLogout = () => {
     localStorage.removeItem("token");
+    const newSessionId = crypto.randomUUID();
+    localStorage.setItem("loan-session-id", newSessionId);
+    setSessionId(newSessionId);
+    setMessages([]);
     setToken(null);
   };
 
-  const [sessionId] = useState(() => {
-  let id = localStorage.getItem("loan-session-id");
+  const [sessionId, setSessionId] = useState(() => {
+    let id = localStorage.getItem("loan-session-id");
 
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem("loan-session-id", id);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("loan-session-id", id);
+    }
+
+    return id;
+  });
+
+useEffect(() => {
+  const loadChatHistory = async () => {
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/chat/session/${sessionId}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (response.status === 404) {
+        // New session — no database history yet
+        return;
+      }
+
+      if (!response.ok) {
+        console.error("Failed to load chat history");
+        return;
+      }
+
+      const data = await response.json();
+
+      setMessages(
+        data.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      );
+    } catch (error) {
+      console.error("Load chat history error:", error);
+    }
+  };
+
+  if (token && sessionId) {
+    loadChatHistory();
   }
-
-  return id;
-});
-
-  useEffect(() => {
-    localStorage.setItem("loan-chat", JSON.stringify(messages));
-  }, [messages]);
+}, [token, sessionId]);
 
   const sendMessage = async () => {
     if (!message.trim() || loading) {
@@ -105,21 +143,38 @@ function App() {
     }
   };
   const clearChat = async () => {
-  try {
-    const token = localStorage.getItem("token");
-    await fetch(`http://localhost:5000/api/chat/session/${sessionId}`, 
-      {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    setMessages([]);
-    localStorage.removeItem("loan-chat");
-  } catch (error) {
-    console.error("Failed to clear chat:", error);
-  }
-};
+    try {
+      const token = localStorage.getItem("token");
+
+      const response = await fetch(
+        `http://localhost:5000/api/chat/session/${sessionId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      if (!response.ok && response.status !== 404) {
+        throw new Error("Failed to clear chat");
+      }
+
+      // Clear messages from UI
+      setMessages([]);
+
+      // Create a completely new chat session ID
+      const newSessionId = crypto.randomUUID();
+
+      // Save it in localStorage
+      localStorage.setItem("loan-session-id", newSessionId);
+
+      // Update React state
+      setSessionId(newSessionId);
+    } catch (error) {
+      console.error("Failed to clear chat:", error);
+    }
+  };
 if (!token) {
     if (showRegister) {
       return (

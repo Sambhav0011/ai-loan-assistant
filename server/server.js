@@ -364,16 +364,39 @@ function executeTool(toolName, args) {
 // -----------------------------
 // Clear Conversation
 // -----------------------------
-app.delete("/api/chat/session/:sessionId", authMiddleware, (req, res) => {
-  const { sessionId } = req.params;
+app.delete("/api/chat/session/:sessionId", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { sessionId } = req.params;
 
-  if (conversations[sessionId]) {
-    delete conversations[sessionId];
+    const result = await pool.query(
+      `DELETE FROM chat_sessions
+         WHERE id = $1 AND user_id = $2
+         RETURNING id`,
+      [sessionId, userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: "Chat session not found",
+      });
+    }
+
+    // Temporary cleanup while old conversations object still exists
+    if (conversations[sessionId]) {
+      delete conversations[sessionId];
+    }
+
+    return res.status(200).json({
+      message: "Conversation session cleared",
+    });
+  } catch (error) {
+    console.error("Clear chat error:", error);
+
+    return res.status(500).json({
+      error: "Failed to clear chat",
+    });
   }
-
-  return res.json({
-    message: "Conversation session cleared",
-  });
 });
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -516,6 +539,43 @@ app.get("/api/auth/me", authMiddleware, (req, res) => {
 // -----------------------------
 // Chat API
 // -----------------------------
+app.get("/api/chat/session/:sessionId", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { sessionId } = req.params;
+
+    const session = await pool.query(
+      `SELECT id
+         FROM chat_sessions
+         WHERE id = $1 AND user_id = $2`,
+      [sessionId, userId],
+    );
+
+    if (session.rows.length === 0) {
+      return res.status(404).json({
+        error: "Chat session not found",
+      });
+    }
+
+    const result = await pool.query(
+      `SELECT role, content, created_at
+         FROM messages
+         WHERE session_id = $1
+         ORDER BY created_at ASC`,
+      [sessionId],
+    );
+
+    return res.status(200).json({
+      messages: result.rows,
+    });
+  } catch (error) {
+    console.error("Load chat error:", error);
+
+    return res.status(500).json({
+      error: "Failed to load chat history",
+    });
+  }
+});
 app.post("/api/chat", authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -920,8 +980,16 @@ Do not mention internal tool calls to the user.
       // No more tools needed
       // -----------------------------
       if (!assistantMessage.tool_calls?.length) {
+        const finalReply = assistantMessage.content;
+        await pool.query(
+          `INSERT INTO messages
+      (id, session_id, role, content)
+     VALUES ($1, $2, $3, $4)`,
+          [crypto.randomUUID(), sessionId, "assistant", finalReply],
+        );
+        console.log("Assistant message saved to database");
         return res.json({
-          reply: assistantMessage.content,
+          reply: finalReply,
         });
       }
 
