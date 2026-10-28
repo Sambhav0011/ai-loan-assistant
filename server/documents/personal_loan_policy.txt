@@ -1,0 +1,21 @@
+DEMO / FICTIONAL POLICY — NOT REAL BANK RULES
+Personal Loan Policy
+This sample document contains fictional policies for demonstrating document chunking.
+
+1. Eligibility
+Applicants must be 21–60 years old and have a minimum monthly income of ₹25,000.
+
+2. Loan Amount
+The minimum loan amount is ₹50,000, and the maximum loan amount is ₹10,00,000.
+
+3. Interest Rate
+The annual interest rate is 10%–16%, depending on the applicant's credit profile.
+
+4. Required Documents
+Applicants must provide identity proof, address proof, a PAN card, and salary slips for the last three months.
+
+5. Repayment
+The repayment period is 12–60 months.
+
+6. Processing Fee
+The processing fee is up to 2% of the loan amount.
